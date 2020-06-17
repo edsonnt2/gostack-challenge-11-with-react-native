@@ -55,16 +55,18 @@ interface Food {
   name: string;
   description: string;
   price: number;
+  category: number;
   image_url: string;
   formattedPrice: string;
+  thumbnail_url: string;
   extras: Extra[];
 }
 
 const FoodDetails: React.FC = () => {
   const [food, setFood] = useState({} as Food);
   const [extras, setExtras] = useState<Extra[]>([]);
-  const [isFavorite, setIsFavorite] = useState(false);
   const [foodQuantity, setFoodQuantity] = useState(1);
+  const [isFavorite, setIsFavorite] = useState(false);
 
   const navigation = useNavigation();
   const route = useRoute();
@@ -73,48 +75,131 @@ const FoodDetails: React.FC = () => {
 
   useEffect(() => {
     async function loadFood(): Promise<void> {
-      // Load a specific food with extras based on routeParams id
+      const { data } = await api.get<Food>(`foods/${routeParams.id}`);
+      setFood({
+        ...data,
+        formattedPrice: formatValue(data.price),
+      });
+
+      setExtras(
+        data.extras.map(extra => ({
+          ...extra,
+          quantity: 0,
+        })),
+      );
     }
 
     loadFood();
   }, [routeParams]);
 
   function handleIncrementExtra(id: number): void {
-    // Increment extra quantity
+    setExtras(state =>
+      state.map(extra =>
+        // extra.id === id && extra.quantity < foodQuantity
+        extra.id === id
+          ? {
+              ...extra,
+              quantity: extra.quantity + 1,
+            }
+          : extra,
+      ),
+    );
   }
 
   function handleDecrementExtra(id: number): void {
-    // Decrement extra quantity
+    setExtras(state =>
+      state.map(extra =>
+        extra.id === id
+          ? {
+              ...extra,
+              quantity: extra.quantity > 0 ? extra.quantity - 1 : 0,
+            }
+          : extra,
+      ),
+    );
   }
 
   function handleIncrementFood(): void {
-    // Increment food quantity
+    setFoodQuantity(state => state + 1);
   }
 
   function handleDecrementFood(): void {
-    // Decrement food quantity
-  }
+    const newFoodQuantity = foodQuantity > 1 ? foodQuantity - 1 : 1;
 
-  const toggleFavorite = useCallback(() => {
-    // Toggle if food is favorite or not
-  }, [isFavorite, food]);
+    // setExtras(state =>
+    //   state.map(extra => ({
+    //     ...extra,
+    //     quantity:
+    //       newFoodQuantity < extra.quantity ? newFoodQuantity : extra.quantity,
+    //   })),
+    // );
+
+    setFoodQuantity(newFoodQuantity);
+  }
 
   const cartTotal = useMemo(() => {
-    // Calculate cartTotal
+    let priceExtra = 0;
+
+    extras.forEach(({ value, quantity }) => {
+      priceExtra += value * quantity;
+    });
+
+    return formatValue(food.price * foodQuantity + priceExtra);
   }, [extras, food, foodQuantity]);
 
+  const toggleFavorite = useCallback(() => {
+    if (isFavorite) {
+      api.delete(`favorites/${food.id}`);
+    } else {
+      api.post('favorites', {
+        id: food.id,
+        name: food.name,
+        description: food.description,
+        price: food.price,
+        category: food.category,
+        image_url: food.image_url,
+        thumbnail_url: food.thumbnail_url,
+      });
+    }
+    setIsFavorite(!isFavorite);
+  }, [isFavorite, food]);
+
   async function handleFinishOrder(): Promise<void> {
-    // Finish the order and save on the API
+    const { id, name, description, price, category, thumbnail_url } = food;
+
+    await api.post('orders', {
+      product_id: id,
+      name,
+      description,
+      price,
+      category,
+      thumbnail_url,
+      extras: food.extras,
+    });
+
+    navigation.navigate('DashboardStack');
   }
 
-  // Calculate the correct icon name
   const favoriteIconName = useMemo(
     () => (isFavorite ? 'favorite' : 'favorite-border'),
     [isFavorite],
   );
 
+  useEffect(() => {
+    async function getFavorite(): Promise<void> {
+      const response = await api.get('favorites', {
+        params: {
+          id: routeParams.id,
+        },
+      });
+
+      setIsFavorite(response.data.length > 0);
+    }
+
+    getFavorite();
+  }, [routeParams.id]);
+
   useLayoutEffect(() => {
-    // Add the favorite icon on the right of the header bar
     navigation.setOptions({
       headerRight: () => (
         <MaterialIcon
@@ -201,7 +286,7 @@ const FoodDetails: React.FC = () => {
             </QuantityContainer>
           </PriceButtonContainer>
 
-          <FinishOrderButton onPress={() => handleFinishOrder()}>
+          <FinishOrderButton onPress={handleFinishOrder}>
             <ButtonText>Confirmar pedido</ButtonText>
             <IconContainer>
               <Icon name="check-square" size={24} color="#fff" />
